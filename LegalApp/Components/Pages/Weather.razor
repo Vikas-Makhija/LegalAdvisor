@@ -1,0 +1,153 @@
+﻿@page "/"
+@using Microsoft.SemanticKernel.ChatCompletion
+@inject IChatCompletionService ChatService
+
+<h3 class="card-header bg-dark text-white align-content-center align-self-center">Legal Assitant</h3>
+
+<!-- Displaying the chat messages using HTML elements -->
+<div class="chat-container">
+    @foreach (var message in ChatMessages)
+    {
+        <div class="message-container">
+            <!-- User's message -->
+            @if (message.IsUserMessage)
+            {
+                <div class="user-message ">
+                    <strong>You: </strong>@message.Text
+                </div>
+            }
+            <!-- AI's response -->
+
+            <div class="bot-message">
+                <strong>AI: </strong> @((MarkupString)message.Response)
+
+            </div>
+
+
+        </div>
+    }
+    <div class="@_spinner" role="status">
+        <span class="sr-only">Loading...</span>
+    </div>
+</div>
+
+<!-- User input field -->
+@* <Input @bind-Text="userMessage" Placeholder="Type your message here..." FontSize="18" /> *@
+<div class="">
+<div class="form-group">
+    <textarea id="aiPromptInput" class="form-control" rows="3"  placeholder="Ask your question..." @bind="userMessage"></textarea>
+</div>
+
+<!-- Send button -->
+@* <Button Text="Send" FontSize="20" @onclick="OnSendMessageClicked" /> *@
+<button class="btn btn-success mt-2" @onclick="OnSendMessageClicked"> Ask</button>
+</div>
+<style>
+    .chat-container {
+        
+        overflow-y: scroll;
+        margin-bottom: 20px;
+        padding: 10px;
+        background-color: #f1f1f1;
+        border-radius: 10px;
+        border: 1px solid #ddd;
+    }
+
+    .message-container {
+        margin: 10px 0;
+    }
+
+    .user-message {
+        background-color: #d1e7dd;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 5px;
+        text-align: left;
+    }
+
+    .bot-message {
+        background-color: #e2e3e5;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 5px;
+        text-align: left;
+    }
+
+    input, button {
+        margin-top: 10px;
+        width: 100%;
+        padding: 10px;
+        border-radius: 5px;
+    }
+
+    button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+    }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+</style>
+
+
+@code {
+    private string userMessage;
+    private List<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
+    public string _spinner = "";
+    private ChatHistory chatHistory = new ChatHistory();
+
+    // public Counter()
+    // {
+    //     // Initializing chat history with system message
+    //     chatHistory.AddSystemMessage("You are a helpful assistant.");
+    // }
+
+    private async Task OnSendMessageClicked()
+    {
+        try
+        {
+            string tasktext = $"";
+
+
+            if (string.IsNullOrWhiteSpace(userMessage)) return;
+            _spinner = "spinner-border text-primary";
+            // Add user message to chat history and update UI
+            chatHistory.AddUserMessage(userMessage);
+            chatHistory.AddSystemMessage("You are a legal expert specializing in Intellectual Property which includes trademark,patent, litigation, infrigement, corporate law and POSH law only; please do not answer any questions outside these topics, and politely inform the user in 2 line response if a question falls outside your scope. please return result in well formatted step by step in html body only and font size should not be more than 18px");
+            ChatMessages.Add(new ChatMessage { Text = userMessage, IsUserMessage = true, Response = "" });
+
+            // Clear input field
+            userMessage = string.Empty;
+
+            // Get AI response
+            var response = await ChatService.GetChatMessageContentAsync(chatHistory);
+
+            // Add AI response to chat history and update the UI
+            var botResponse = FormatResponseAsIndentedHtml(response.Content ?? "Sorry, I couldn't understand your request.");
+            ChatMessages[ChatMessages.Count - 1].Response = botResponse;
+            chatHistory.AddMessage(response.Role, botResponse);
+
+            _spinner = "";
+            StateHasChanged(); // Refresh the UI
+        }
+        catch (Exception ex)
+        {
+            _spinner = "";
+            throw;
+        }
+    }
+    private string FormatResponseAsIndentedHtml(string responseContent)
+    {
+        // Wrap the response in a <blockquote> to visually indent it
+        return responseContent;// $"<blockquote class='indented-response'>{responseContent}</blockquote>";
+    }
+    public class ChatMessage
+    {
+        public string Text { get; set; } // User's message
+        public string Response { get; set; } // AI's response
+        public bool IsUserMessage { get; set; } // Flag to distinguish between user and bot messages
+    }
+}
