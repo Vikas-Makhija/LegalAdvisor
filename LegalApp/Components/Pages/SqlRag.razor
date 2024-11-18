@@ -1,8 +1,9 @@
-﻿@page "/"
+﻿@page "/sqlrag"
 @using Microsoft.SemanticKernel.ChatCompletion
+@using System.Text.Json
 @inject IChatCompletionService ChatService
 
-<h3 class="card-header bg-dark text-white align-content-center align-self-center">Legal Assistant</h3>
+<h3 class="card-header bg-dark text-white align-content-center align-self-center">Chat with your relational database!</h3>
 
 <!-- Displaying the chat messages using HTML elements -->
 <div class="chat-container">
@@ -22,6 +23,26 @@
                 <strong>AI: </strong> @((MarkupString)message.Response)
 
             </div>
+            @if (RowData != null && RowData.Any())
+            {
+                <p><b>Data results:</b></p>
+                <div class="overflow-scroll">
+                    <table class="table table-striped">
+                        @if (RowData != null)
+                        {
+                            foreach (var row in RowData)
+                            {
+                                <tr>
+                                    @foreach (var col in row)
+                                    {
+                                        <td>@col</td>
+                                    }
+                                </tr>
+                            }
+                        }
+                    </table>
+                </div>
+            }
 
 
         </div>
@@ -34,17 +55,16 @@
 <!-- User input field -->
 @* <Input @bind-Text="userMessage" Placeholder="Type your message here..." FontSize="18" /> *@
 <div class="">
-<div class="form-group">
-    <textarea id="aiPromptInput" class="form-control" rows="3"  placeholder="Ask your question..." @bind="userMessage"></textarea>
-</div>
+    <div class="form-group">
+        <textarea id="aiPromptInput" class="form-control" rows="3" placeholder="Ask your question..." @bind="userMessage"></textarea>
+    </div>
 
-<!-- Send button -->
-@* <Button Text="Send" FontSize="20" @onclick="OnSendMessageClicked" /> *@
-<button class="btn btn-success mt-2" @onclick="OnSendMessageClicked"> Ask</button>
+    <!-- Send button -->
+    @* <Button Text="Send" FontSize="20" @onclick="OnSendMessageClicked" /> *@
+    <button class="btn btn-success mt-2" @onclick="OnSendMessageClicked"> Ask</button>
 </div>
 <style>
     .chat-container {
-        
         overflow-y: scroll;
         margin-bottom: 20px;
         padding: 10px;
@@ -98,7 +118,10 @@
     private List<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
     public string _spinner = "";
     private ChatHistory chatHistory = new ChatHistory();
-
+    public List<List<string>> RowData { get; set; } 
+    public string Summary { get; set; }
+    public string Query { get; set; }
+    public string Error { get; set; }
     // public Counter()
     // {
     //     // Initializing chat history with system message
@@ -109,14 +132,32 @@
     {
         try
         {
-            string tasktext = $"";
+            string tasktext = @"Your are a helpful, cheerful database assistant.
+            Use the following database schema when creating your answers and use default schema name do not add any character after schema name:
+
+            - Employee ([EmployeeName],[Department],[DateOfJoining],[PhotoFileName])
+            - Department([DepartmentId],[DepartmentName])
+
+            Include column name headers in the query results.
+
+            Always provide your answer in the JSON format below:
+
+            { ""summary"": ""your-summary"", ""query"":  ""your-query"" }
+
+            Output ONLY JSON.
+            In the preceding JSON response, substitute ""your-query"" with Microsoft SQL Server Query to retrieve the requested data.
+            In the preceding JSON response, substitute ""your-summary"" with a summary of the query.
+            Always include all columns in the table.
+            If the resulting query is non-executable, replace ""your-query"" with NA, but still substitute ""your-query"" with a summary of the query.
+            Do not use MySQL syntax.
+            Always limit the SQL Query to 100 rows.";
 
 
             if (string.IsNullOrWhiteSpace(userMessage)) return;
             _spinner = "spinner-border text-primary";
             // Add user message to chat history and update UI
             chatHistory.AddUserMessage(userMessage);
-            chatHistory.AddSystemMessage("You are a legal expert specializing in Intellectual Property which includes trademark,patent, litigation, infrigement, corporate law and POSH law only; please do not answer any questions outside these topics, and politely inform the user in 2 line response if a question falls outside your scope. please return result in well formatted step by step in html body only and font size should not be more than 18px");
+            chatHistory.AddSystemMessage(tasktext);
             ChatMessages.Add(new ChatMessage { Text = userMessage, IsUserMessage = true, Response = "" });
 
             // Clear input field
@@ -126,7 +167,16 @@
             var response = await ChatService.GetChatMessageContentAsync(chatHistory);
 
             // Add AI response to chat history and update the UI
-            var botResponse = FormatResponseAsIndentedHtml(response.Content ?? "Sorry, I couldn't understand your request.");
+            var botResponse = response.Content ?? "Sorry, I couldn't understand your request.";
+
+            var airesponse = JsonSerializer
+                    .Deserialize<AIQuery>(botResponse
+                    .Replace("```json", "").Replace("```", ""));
+
+            Summary = airesponse.summary;
+            Query = airesponse.query;
+            RowData = DataService.GetDataTable(airesponse.query);
+
             ChatMessages[ChatMessages.Count - 1].Response = botResponse;
             chatHistory.AddMessage(response.Role, botResponse);
 
@@ -149,5 +199,10 @@
         public string Text { get; set; } // User's message
         public string Response { get; set; } // AI's response
         public bool IsUserMessage { get; set; } // Flag to distinguish between user and bot messages
+    }
+    public class AIQuery
+    {
+        public string summary { get; set; }
+        public string query { get; set; }
     }
 }
